@@ -1,0 +1,9 @@
+# Java Code Specification Scanner Dependencies
+# Core functionality is implemented with standard library
+# The following dependencies are optional for advanced features
+
+# For AST analysis (optional, for complex patterns)
+javalang>=0.13.0
+
+# For more advanced XML parsing (optional)
+lxml>=4.9.0

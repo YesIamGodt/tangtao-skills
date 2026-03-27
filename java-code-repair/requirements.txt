@@ -1,0 +1,15 @@
+# Java Code Repair Dependencies
+
+# Git operations
+GitPython>=3.1.0
+
+# Markdown parsing
+markdown>=3.3.0
+
+# Configuration
+pyyaml>=5.4.0
+
+# Optional dependencies for advanced features
+# For more advanced parsing
+# pandas>=1.0.0
+# beautifulsoup4>=4.9.0
