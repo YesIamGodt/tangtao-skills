@@ -9,7 +9,7 @@ This skill provides automatic code repair for Java code based on the report gene
 To use this skill in Claude Code:
 
 ```bash
-/tangtao-skills:java-code-repair --report /path/to/report.md [--preview] [--config /path/to/config.json]
+/tangtao-java-code-repair --report /path/to/report.md [--preview]
 ```
 
 ## Arguments
@@ -41,24 +41,22 @@ Create a `repair-config.json` file to customize the behavior:
 
 ## Git Branch Naming
 
-Branches are created in the format: `ai-repair-<timestamp>` where timestamp is `YYYYMMDDHHMM`.
+Branches are created in the format: `ai-repair-<timestamp>` where timestamp is `YYYYMMDDHHMMSS`.
 
 ## Commit Message Format
 
 ```
-fix: 自动修复代码规范问题
+fix: 自动修复代码规范问题（全规则版）
 
 修复了 <number> 个问题
 
 - 修复 <rule-id>: <count> 处
 - 修复 <rule-id>: <count> 处
 
-扫描时间: 2026-03-27 14:30:00
+扫描时间: 2026-03-31 14:30:00
 ```
 
 ## Requirements
-
-The following Python packages are required:
 
 ```
 GitPython>=3.1.0
@@ -66,28 +64,46 @@ markdown>=3.3.0
 pyyaml>=5.4.0
 ```
 
-Install them with:
-```bash
-cd /c/Users/86187/tangtao-skills/java-code-repair
-pip install -r requirements.txt
-```
+## Supported Fix Rules (27 rules total)
 
-## Supported Fix Rules
+### ✅ Auto-Fix Rules (可以直接自动修改代码)
 
-### Implemented Rules
+| Rule | Description |
+|------|-------------|
+| G.EXP.05 | Adds null checks before using variables that might be null |
+| G.TYP.02 | Adds division by zero checks |
+| G.OTH.03 | Replaces hardcoded addresses with configuration references |
+| G.LOG.06 | Removes sensitive information from logs (redacts with [REDACTED]) |
+| G.ERR.04 | Replaces printStackTrace() with logger.error() |
+| G.OTH.01 | Replaces Math.random() / Random with SecureRandom |
+| G.PRM.07 | Suggests using try-with-resources (auto-wrap where possible) |
 
-- **G.EXP.05**: Adds null checks before using variables that might be null
-- **G.PRM.07**: Suggests using try-with-resources (preview only)
-- **G.LOG.06**: Removes sensitive information from logs
-- **G.TYP.02**: Adds division by zero checks
-- **G.OTH.03**: Replaces hardcoded addresses with configuration references
-- **G.EDV.01**: Suggests using PreparedStatement to prevent SQL injection (preview only)
+### 💡 Suggestion Rules (提供具体修复建议)
 
-### Future Enhancements
-
-- G.CON.14: ThreadLocal cleanup
-- G.EDV.03: Command injection prevention
-- And more...
+| Rule | Description |
+|------|-------------|
+| G.CON.02 | Suggests try-lock + finally pattern for lock release |
+| G.CON.04 | Suggests adding volatile for double-checked locking |
+| G.CON.14 | Suggests calling remove() for ThreadLocal cleanup |
+| P.03 | Suggests consistent lock ordering or concurrent utilities |
+| G.SEC.03 | Suggests manual JAR signature verification |
+| G.LOG.05 | Suggests sanitization before logging external data |
+| G.FIO.01 | Suggests path validation and canonicalization |
+| G.FIO.02 | Suggests Zip Slip path checking |
+| G.FIO.05 | Suggests delete() / deleteOnExit() for temp files |
+| P.04 | Suggests principle of least privilege for file permissions |
+| G.TYP.01 | Suggests Math.addExact for integer overflow prevention |
+| G.TYP.11 | Suggests Arrays.fill to clear sensitive data |
+| P.05 | Suggests input validation before use |
+| G.EDV.01 | Suggests using PreparedStatement to prevent SQL injection |
+| G.EDV.02 | Suggests proper format string usage (placeholder first) |
+| G.EDV.03 | Suggests whitelist validation for command injection |
+| G.EDV.04 | Suggests output encoding for XML injection |
+| G.EDV.08 | Suggests simpler regex to prevent ReDoS |
+| G.EDV.09 | Suggests whitelist validation for reflection injection |
+| G.SER.04 | Suggests transient modifier for system resource handles |
+| G.SER.06 | Suggests transient modifier for sensitive serialization fields |
+| G.SER.08 | Suggests ObjectInputFilter whitelist for deserialization |
 
 ## Examples
 
@@ -95,18 +111,18 @@ pip install -r requirements.txt
 
 ```bash
 cd /path/to/your/repo
-/tangtao-skills:java-code-spec-scanner
-/tangtao-skills:java-code-repair --report report.md
+python scanner.py --dir src/main/java --output report.md
+python repair.py --report report.md
 ```
 
 ### Preview Mode
 
 ```bash
-/tangtao-skills:java-code-repair --report report.md --preview
+python repair.py --report report.md --preview
 ```
 
-### Custom Configuration
+### Full Learning Cycle
 
 ```bash
-/tangtao-skills:java-code-repair --report report.md --config custom-config.json --remote my-remote
+python learner.py --count 5 --no-preview
 ```

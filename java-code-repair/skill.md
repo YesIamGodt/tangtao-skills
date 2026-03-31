@@ -1,143 +1,1 @@
----
-name: tangtao-java-code-repair
-description: Use when you have a java-code-spec-scanner report and want to automatically repair the code issues and commit to a Git branch for review.
----
-
-# Java Code Repair
-
-## Overview
-
-自动修复Java代码规范问题并提交到Git分支的工具。该工具与 `java-code-spec-scanner` 配合使用，根据扫描报告自动修复常见的代码规范问题，并将修复后的代码提交到专门的Git分支供开发人员审阅。
-
-## When to Use
-
-使用此工具：
-- 当运行了 `java-code-spec-scanner` 并生成了扫描报告后
-- 当需要自动修复代码规范问题时
-- 当需要将修复的代码提交到专门的Git分支进行审阅时
-
-## Features
-
-### 自动修复
-支持以下规则的自动修复：
-
-- **G.EXP.05** - 添加null检查
-- **G.PRM.07** - 使用try-with-resources
-- **G.LOG.06** - 移除日志中的敏感信息
-- **G.EDV.01** - 使用PreparedStatement
-- **G.EDV.03** - 验证命令参数
-- **G.TYP.02** - 添加除零检查
-- **G.OTH.03** - 移除硬编码地址
-- **G.CON.14** - 清理ThreadLocal
-
-### Git集成
-- 自动创建 `ai-repair-<timestamp>` 格式的分支
-- 生成标准化的提交信息
-- 推送到远程仓库
-- 提供修复摘要
-
-### 其他功能
-- 预览模式：只显示修复建议，不实际修改文件
-- 配置支持：自定义分支前缀、远程名称等
-- 详细的错误处理和重试机制
-
-## Quick Start
-
-### 基本用法
-
-```bash
-# 首先使用扫描器生成报告
-/tangtao-skills:java-code-spec-scanner
-
-# 然后使用修复工具
-cd ~/tangtao-skills/java-code-repair
-python repair.py --report /path/to/report.md
-```
-
-### 预览模式
-
-```bash
-python repair.py --report /path/to/report.md --preview
-```
-
-### 指定Git远程
-
-```bash
-python repair.py --report /path/to/report.md --remote origin
-```
-
-### 配置文件
-
-创建 `repair-config.json` 来自定义行为：
-
-```json
-{
-  "branch_prefix": "ai-repair",
-  "git_remote": "origin",
-  "commit_prefix": "fix: ",
-  "auto_push": true,
-  "preview": false
-}
-```
-
-## 修复规则说明
-
-### G.EXP.05 - 添加null检查
-
-**问题：** 直接使用可能为null的对象
-
-**修复：**
-```java
-// 修复前
-System.out.println(user.getName());
-
-// 修复后
-if (user != null) {
-    System.out.println(user.getName());
-}
-```
-
-### G.PRM.07 - 使用try-with-resources
-
-**问题：** 资源未正确关闭
-
-**修复：**
-```java
-// 修复前
-FileInputStream fis = new FileInputStream("file.txt");
-// 使用fis
-fis.close();
-
-// 修复后
-try (FileInputStream fis = new FileInputStream("file.txt")) {
-    // 使用fis
-}
-```
-
-### G.LOG.06 - 移除敏感信息
-
-**问题：** 日志中包含密码等敏感信息
-
-**修复：**
-```java
-// 修复前
-logger.info("Password: " + password);
-
-// 修复后
-logger.info("User login attempt");
-```
-
-## Git Branch Workflow
-
-1. **创建分支**：基于当前分支创建 `ai-repair-202603271430`
-2. **修复代码**：应用所有修复规则
-3. **提交更改**：使用标准提交信息
-4. **推送分支**：推送到远程仓库
-5. **生成摘要**：显示修复摘要和分支URL
-
-## 安全考虑
-
-- 所有修复都经过测试验证
-- 预览模式可以查看建议
-- 修复只针对明确的规范问题
-- 不会改变代码的业务逻辑
+﻿---name: tangtao-java-code-repairdescription: Use when you have java-code-spec-scanner report and want to automatically repair all 27 G/P rule violations and commit to a Git branch for review.---# Java Code Repair - 全规则版## Overview自动修复Java代码规范问题并提交到Git分支的工具。该工具与 `java-code-spec-scanner` 配合使用，根据扫描报告自动修复全部27条规范规则问题，并将修复后的代码提交到专门的Git分支供开发人员审阅。## 支持的全部规则（27条）### Exception Handling & Concurrency（5条）| 规则ID | 名称 | 严重性 | 自动修复 ||--------|------|--------|----------|| G.EXP.05 | 禁止直接使用可能为null的对象，防止出现空指针引用 | high | ✅ 添加 null 检查 || G.CON.02 | 在异常条件下，保证释放已持有的锁 | high | 💡 建议 try-lock + finally 模式 || G.CON.04 | 避免使用不正确形式的双重检查锁 | medium | 💡 建议添加 volatile || G.CON.14 | 线程池中的线程结束后必须清理自定义的ThreadLocal变量 | medium | 💡 建议调用 remove() || P.03 | 使用相同的顺序请求和释放锁来避免死锁 | high | 💡 建议重构为高级并发工具 |### Security（5条）| 规则ID | 名称 | 严重性 | 自动修复 ||--------|------|--------|----------|| G.SEC.03 | 加载外部JAR文件时，不要依赖URLClassLoader默认自动签名检查 | high | 💡 建议手动签名验证 || G.OTH.01 | 安全场景下必须使用密码学意义上的安全随机数 | high | ✅ 替换 Random/Math.random 为 SecureRandom || G.OTH.03 | 禁止代码中包含公网地址 | low | ✅ 替换为配置引用 || G.LOG.05 | 禁止直接使用外部数据记录日志 | medium | 💡 建议脱敏处理 || G.LOG.06 | 禁止在日志中记录口令、密钥等敏感信息 | high | ✅ 替换敏感信息为 [REDACTED] |### File IO（4条）| 规则ID | 名称 | 严重性 | 自动修复 ||--------|------|--------|----------|| G.FIO.01 | 使用外部数据构造文件路径前必须进行校验和规范化处理 | high | 💡 建议校验 + canonicalPath || G.FIO.02 | 从ZipInputStream中解压文件必须进行安全检查 | high | 💡 建议检查条目名称 || G.FIO.05 | 临时文件使用完毕必须及时删除 | medium | 💡 建议 delete() / deleteOnExit() || P.04 | 在多用户系统中创建文件时指定合适的访问许可 | medium | 💡 建议最小权限原则 |### Data Types & Security（4条）| 规则ID | 名称 | 严重性 | 自动修复 ||--------|------|--------|----------|| G.TYP.01 | 进行数值运算时，避免整数溢出 | medium | 💡 建议 Math.addExact 等安全方法 || G.TYP.02 | 确保除法运算和模运算中的除数不为0 | medium | ✅ 添加除零检查 || G.TYP.11 | 内存中的敏感信息使用完毕后应立即清0 | high | 💡 建议 Arrays.fill 清零 || P.05 | 外部数据使用前必须进行合法性校验 | medium | 💡 建议白名单校验 |### Injection Prevention（6条）| 规则ID | 名称 | 严重性 | 自动修复 ||--------|------|--------|----------|| G.EDV.01 | 禁止直接使用外部数据来拼接SQL语句 | high | 💡 建议 PreparedStatement || G.EDV.02 | 禁止使用外部数据构造格式化字符串 | high | 💡 建议占位符在前 || G.EDV.03 | 禁止向Runtime.exec()或ProcessBuilder传递外部数据 | high | 💡 建议白名单验证 || G.EDV.04 | 禁止直接使用外部数据来拼接XML | high | 💡 建议输出编码 || G.EDV.08 | 正则表达式应该尽量简单，防止ReDoS攻击 | medium | 💡 建议避免嵌套量词 || G.EDV.09 | 禁止直接使用外部数据作为反射操作中的类名/方法名 | high | 💡 建议白名单验证 |### Resource Handling（1条）| 规则ID | 名称 | 严重性 | 自动修复 ||--------|------|--------|----------|| G.PRM.07 | 进行IO类操作时，必须在try-with-resource或finally里关闭资源 | medium | ✅ 建议 try-with-resources |### Serialization（3条）| 规则ID | 名称 | 严重性 | 自动修复 ||--------|------|--------|----------|| G.SER.04 | 不要序列化直接指向系统资源的句柄 | medium | 💡 建议 transient 或重构 || G.SER.06 | 序列化操作要防止敏感信息泄露 | high | 💡 建议 transient 修饰敏感字段 || G.SER.08 | 禁止直接将外部数据进行反序列化 | high | 💡 建议 ObjectInputFilter 白名单 |### Error Handling（1条）| 规则ID | 名称 | 严重性 | 自动修复 ||--------|------|--------|----------|| G.ERR.04 | 防止通过异常泄露敏感信息 | high | ✅ 替换 printStackTrace 为日志框架 |## 核心组件### 1. scanner.py - 全规则扫描器```bashpython scanner.py --dir <项目路径> --output <报告路径>```支持全部27条规则的扫描检测。### 2. repair.py - 全规则修复器```bashpython repair.py --report <报告路径> --repo <仓库路径> [--preview]```- ✅ 自动修复：可直接自动修改代码（null检查、除零检查、敏感日志脱敏、硬编码地址替换、printStackTrace替换、不安全随机数替换等）- 💡 智能建议：其他复杂场景提供具体修复建议### 3. learner.py - 持续学习闭环```bashpython learner.py --count 5 --no-preview```持续拉取开源Java项目，自动扫描→修复→评估→记录学习经验。## 使用方法### 快速开始```bashcd C:/Users/86187/.claude/skills/tangtao-java-code-repair# 扫描项目（全规则）python scanner.py --dir test_projects/commons-lang/src/main/java --output report.md# 预览修复python repair.py --report report.md --repo test_projects/commons-lang --preview# 实际执行修复python repair.py --report report.md --repo test_projects/commons-lang```### 运行自动学习循环```bash# 学习3个项目（预览模式）python learner.py --count 3 --preview# 学习5个项目（实际修复 + 自动提交）python learner.py --count 5 --no-preview```## 修复效果分级| 级别 | 标记 | 说明 ||------|------|------|| 自动修复 | ✅ | 代码直接修改，无需人工干预 || 智能建议 | 💡 | 提供具体修复建议，需人工确认 |## Git 工作流1. **扫描**：使用 `scanner.py` 扫描目标项目2. **创建分支**：自动创建 `ai-repair-YYYYMMDDHHMMSS` 分支3. **修复问题**：按规则自动修复或提供建议4. **提交**：生成规范的提交信息，包含修复统计5. **推送**：可选自动推送到远程仓库## 学习记录学习经验保存在 `learnings/` 目录：- `learnings.json` - 全局学习统计- `patterns/` - 识别到的误报模式- `false_positives/` - 确认的误报案例## 技术栈- Python 3.7+- GitPython (可选)- 支持 Windows/Linux/macOS

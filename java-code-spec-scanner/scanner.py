@@ -9,7 +9,7 @@ import re
 import sys
 import json
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Callable, Tuple
+from typing import List, Dict, Optional, Callable, Tuple, Set
 from collections import defaultdict
 
 # Constants
@@ -34,6 +34,7 @@ class ScanResult:
     total_issues: int = 0
     issues: List[Issue] = field(default_factory=list)
     rule_counts: Dict[str, int] = field(default_factory=dict)
+    scanned_files: List[str] = field(default_factory=list)
 
 
 def register_rule(rule_id: str, rule_name: str):
@@ -56,6 +57,117 @@ def extract_code_snippet(lines: List[str], line_num: int, context: int = 3) -> s
 
 
 # ============================================================================
+# VARIABLE ANALYSIS HELPERS
+# ============================================================================
+
+@dataclass
+class VariableInfo:
+    """Information about a variable's declaration and usage."""
+    name: str
+    line_number: int
+    is_initialized: bool = False
+    initial_value: Optional[str] = None
+    is_final: bool = False
+    has_nonnull_annotation: bool = False
+    is_parameter: bool = False
+    is_field: bool = False
+
+
+def extract_variable_declarations(lines: List[str]) -> Dict[str, List[VariableInfo]]:
+    """Extract variable declarations from the code."""
+    variables: Dict[str, List[VariableInfo]] = defaultdict(list)
+
+    field_pattern = re.compile(r'(?:public|private|protected)?\s*(?:static\s+)?(?:final\s+)?(?:@\w+\s+)*([a-zA-Z_]\w*)\s+([a-zA-Z_]\w*)\s*(?:=\s*([^;]+))?;')
+    local_var_pattern = re.compile(r'(?:final\s+)?(?:@\w+\s+)*([a-zA-Z_]\w*)\s+([a-zA-Z_]\w*)\s*(?:=\s*([^;]+))?;')
+    param_pattern = re.compile(r'(?:@\w+\s+)*([a-zA-Z_]\w*)\s+([a-zA-Z_]\w*)\s*(?:,|\))')
+
+    for line_num, line in enumerate(lines):
+        stripped_line = line.strip()
+
+        # Skip comments
+        if stripped_line.startswith('//') or stripped_line.startswith('/*'):
+            continue
+
+        # Check for field declarations
+        field_match = field_pattern.search(line)
+        if field_match:
+            var_name = field_match.group(2)
+            var_info = VariableInfo(
+                name=var_name,
+                line_number=line_num,
+                is_initialized=field_match.group(3) is not None,
+                initial_value=field_match.group(3).strip() if field_match.group(3) else None,
+                is_final='final' in line,
+                has_nonnull_annotation='@NonNull' in line or '@NotNull' in line,
+                is_field=True
+            )
+            variables[var_name].append(var_info)
+            continue
+
+        # Check for local variable declarations
+        local_match = local_var_pattern.search(line)
+        if local_match and not any(keyword in line for keyword in ['if', 'for', 'while', 'switch', 'catch']):
+            var_name = local_match.group(2)
+            var_info = VariableInfo(
+                name=var_name,
+                line_number=line_num,
+                is_initialized=local_match.group(3) is not None,
+                initial_value=local_match.group(3).strip() if local_match.group(3) else None,
+                is_final='final' in line,
+                has_nonnull_annotation='@NonNull' in line or '@NotNull' in line
+            )
+            variables[var_name].append(var_info)
+
+    return variables
+
+
+def is_safe_initialization(initial_value: Optional[str]) -> bool:
+    """Check if an initial value is safe (definitely not null)."""
+    if not initial_value:
+        return False
+
+    # New object creation
+    if initial_value.startswith('new '):
+        return True
+
+    # String literals
+    if initial_value.startswith('"'):
+        return True
+
+    # Numeric literals
+    if re.match(r'^[\d.]+', initial_value):
+        return True
+
+    # Boolean literals
+    if initial_value in ['true', 'false']:
+        return True
+
+    # this/super
+    if initial_value in ['this', 'super']:
+        return True
+
+    return False
+
+
+def find_variable_in_scope(var_name: str, line_num: int, variables: Dict[str, List[VariableInfo]]) -> Optional[VariableInfo]:
+    """Find the most relevant variable declaration in scope for a given line."""
+    if var_name not in variables:
+        return None
+
+    # Find the last declaration before the usage line
+    relevant_vars = [v for v in variables[var_name] if v.line_number < line_num]
+    if not relevant_vars:
+        # Check if there's a declaration at or after (might be a field)
+        relevant_vars = variables[var_name]
+
+    if not relevant_vars:
+        return None
+
+    # Return the closest one before the usage line, or the first one
+    return sorted(relevant_vars, key=lambda v: abs(v.line_number - line_num))[0]
+
+
+# ============================================================================
 # RULES IMPLEMENTATION
 # ============================================================================
 
@@ -64,8 +176,10 @@ def check_null_pointer_dereference(content: str, file_path: str) -> List[Issue]:
     issues = []
     lines = content.split("\n")
 
+    # Extract variable declarations first
+    variables = extract_variable_declarations(lines)
+
     # Pattern to find method calls on objects that might be null
-    # More targeted pattern - only method/field access
     patterns = [
         (r'\b([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)\s*\(', 1, 2),  # method call
     ]
@@ -75,6 +189,7 @@ def check_null_pointer_dereference(content: str, file_path: str) -> List[Issue]:
 
     for line_num, line in enumerate(lines):
         stripped_line = line.strip()
+
         # Skip comments, imports, package declarations, annotations
         if (stripped_line.startswith('//') or
             stripped_line.startswith('/*') or
@@ -88,12 +203,19 @@ def check_null_pointer_dereference(content: str, file_path: str) -> List[Issue]:
             matches = re.finditer(pattern, line)
             for match in matches:
                 var_name = match.group(var_group)
+
+                # Skip System.out/err
+                if 'System.' + var_name in line:
+                    continue
+
                 # Skip if variable name is uppercase (constants)
                 if var_name.isupper():
                     continue
+
                 # Skip excluded variables
                 if var_name in exclude_vars:
                     continue
+
                 # Skip if starts with excluded prefixes
                 if any(var_name.startswith(prefix) for prefix in exclude_prefixes):
                     continue
@@ -113,6 +235,22 @@ def check_null_pointer_dereference(content: str, file_path: str) -> List[Issue]:
                 if in_null_check:
                     continue
 
+                # Analyze variable declaration
+                var_info = find_variable_in_scope(var_name, line_num, variables)
+
+                # Skip if variable is final and initialized
+                if var_info and var_info.is_final and var_info.is_initialized:
+                    continue
+
+                # Skip if variable has @NonNull annotation
+                if var_info and var_info.has_nonnull_annotation:
+                    continue
+
+                # Skip if variable is safely initialized
+                if var_info and var_info.is_initialized and is_safe_initialization(var_info.initial_value):
+                    continue
+
+                # Only flag if we can't confirm it's safe
                 issues.append(Issue(
                     rule_id="G.EXP.05",
                     rule_name="禁止直接使用可能为null的对象，防止出现空指针引用",
@@ -437,10 +575,20 @@ def check_divide_by_zero(content: str, file_path: str) -> List[Issue]:
     division_patterns = [r'\b(\w+)\s*[/%]\s*', r'[/%]\s*(\w+)\b']
 
     for i, line in enumerate(lines):
+        stripped_line = line.strip()
+
+        # Skip comments
+        if stripped_line.startswith('//') or stripped_line.startswith('/*') or stripped_line.startswith('*'):
+            continue
+
         for pattern in division_patterns:
             matches = re.finditer(pattern, line)
             for match in matches:
                 var_name = match.group(1)
+                # Skip if it's just text like "Empty" in comments (we already skipped comments)
+                if var_name.isupper() or len(var_name) <= 2:
+                    continue
+
                 # 检查是否有除以零的保护
                 has_protection = any(check in line for check in [
                     rf'{var_name}\s*!=\s*0',
@@ -700,6 +848,7 @@ class JavaCodeScanner:
                 file_path = os.path.join(dirpath, filename)
                 if self.should_include_file(file_path):
                     result.files_scanned += 1
+                    result.scanned_files.append(file_path)  # Collect scanned file path
                     issues = self.scan_file(file_path)
                     for issue in issues:
                         result.issues.append(issue)
@@ -727,6 +876,14 @@ def generate_markdown_report(result: ScanResult) -> str:
         for rule_id, count in sorted(result.rule_counts.items()):
             rule_name = RULE_REGISTRY.get(rule_id, (rule_id,))[0]
             lines.append(f"| {rule_id} | {rule_name} | {count} |\n")
+
+    lines.append("\n---\n\n")
+    lines.append("## 扫描文件清单\n")
+    if result.scanned_files:
+        for file_path in sorted(result.scanned_files):
+            lines.append(f"- {file_path}\n")
+    else:
+        lines.append("无 Java 文件被扫描\n")
 
     lines.append("\n---\n\n")
     lines.append("## 详细问题列表\n")
@@ -804,6 +961,7 @@ def main():
         result = ScanResult()
         if scanner.should_include_file(target_path):
             result.files_scanned = 1
+            result.scanned_files = [target_path]
             result.issues = scanner.scan_file(target_path)
             result.total_issues = len(result.issues)
             for issue in result.issues:
@@ -815,12 +973,18 @@ def main():
 
     report = generate_markdown_report(result)
 
+    # Determine output path - default to scan_report.md in the scanned directory
     if args.output:
-        with open(args.output, 'w', encoding='utf-8') as f:
-            f.write(report)
-        print(f"报告已保存到: {args.output}")
+        output_path = args.output
     else:
-        print("\n" + report)
+        if os.path.isfile(target_path):
+            output_path = "scan_report.md"
+        else:
+            output_path = os.path.join(target_path, "scan_report.md")
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(report)
+    print(f"报告已保存到: {output_path}")
 
     return 0 if result.total_issues == 0 else 1
 
